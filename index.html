@@ -60,6 +60,7 @@
   .tag{display:inline-block; font-size:10px; padding:1px 6px; border-radius:6px; background:var(--bg);
     color:var(--sub); margin-right:4px; border:1px solid var(--line);}
   .tag.plat{color:var(--amber); border-color:#F3DCA8; background:#FCF4E6;}
+  .tag.pay{color:#2F6FED; border-color:#C9DCFB; background:#EAF1FE;}
   .empty{text-align:center; color:var(--hint); padding:50px 0; font-size:13px;}
 
   /* filters */
@@ -201,6 +202,11 @@
         <div id="platChart"></div>
         <div id="platEmpty" class="empty hidden">本月暂无网购记录</div>
       </div>
+      <div class="stat-card">
+        <div class="title"><span>支出 · 支付方式</span><span id="payTotal">¥0</span></div>
+        <div id="payChart"></div>
+        <div id="payEmpty" class="empty hidden">本月暂无记录</div>
+      </div>
     </section>
 
     <!-- 我的 -->
@@ -276,6 +282,14 @@
       <label>网购平台</label>
       <select id="fPlat"></select>
     </div>
+    <div class="field" id="payField">
+      <label>支付方式</label>
+      <select id="fPay"></select>
+    </div>
+    <div class="field hidden" id="bankField">
+      <label>银行与尾号</label>
+      <input id="fBank" placeholder="如 招商银行 6688" style="text-align:left;">
+    </div>
     <div class="row2">
       <div class="field" style="flex:1.2;">
         <label>日期</label>
@@ -344,7 +358,8 @@ function load(){
       expenseCats:['餐饮美食','交通出行','居家生活','医疗健康','休闲娱乐','学习进修','通讯物业','人情社交','服饰美容','其他'],
       incomeCats:['工资','奖金绩效','兼职外快','理财收益','红包人情','其他收入'],
       platforms:['淘宝','天猫','京东','拼多多','抖音商城','唯品会','苏宁','美团','小红书','阿里巴巴','其他'],
-      goodsTypes:['服饰鞋包','美妆护肤','零食饮料','买菜生鲜','三餐外卖','家居日用','数码电器','母婴亲子','图书文具','医药健康','交通通行','其他']
+      goodsTypes:['服饰鞋包','美妆护肤','零食饮料','买菜生鲜','三餐外卖','家居日用','数码电器','母婴亲子','图书文具','医药健康','交通通行','其他'],
+      payMethods:['信用卡','花呗','银行卡','微信零钱','分付']
     }
   };
 }
@@ -384,7 +399,7 @@ window.JianjiSync=(function(){
   // 分类/平台/消费类型取并集（小数据，冲突时并集优先，不丢）
   function mergeSettings(s){
     if(!s) return false; let changed=false;
-    ["expenseCats","incomeCats","platforms","goodsTypes"].forEach(k=>{
+    ["expenseCats","incomeCats","platforms","goodsTypes","payMethods"].forEach(k=>{
       (s[k]||[]).forEach(v=>{ if(!state.settings[k].includes(v)){ state.settings[k].push(v); changed=true; } });
     });
     return changed;
@@ -538,6 +553,7 @@ function renderList(){
     }
     const tags=[`<span class="tag">${r.goodsType||'—'}</span>`];
     if(r.isOnline) tags.push(`<span class="tag plat">${r.platform}</span>`);
+    if(r.payMethod) tags.push(`<span class="tag pay">${r.payMethod}${r.payDetail?('·'+escapeHtml(r.payDetail)):''}</span>`);
     const sign=r.type==='income'?'+':'-';
     const ico=r.type==='income'?'💰':(ICONS[r.category]||'🛒');
     html+=`<div class="item" data-id="${r.id}">
@@ -581,6 +597,10 @@ function renderStat(){
   const platSum=platRs.reduce((s,r)=>s+ +r.amount,0);
   renderBars('platChart','platTotal',byPlat,platSum);
   document.getElementById('platEmpty').classList.toggle('hidden',platRs.length>0);
+  // 支付方式
+  const byPay={}; rs.forEach(r=>{ if(r.payMethod) byPay[r.payMethod]=(byPay[r.payMethod]||0)+ +r.amount; });
+  renderBars('payChart','payTotal',byPay,exp);
+  document.getElementById('payEmpty').classList.toggle('hidden',rs.filter(r=>r.payMethod).length>0);
 }
 
 function renderBars(chartId,totalId,obj,total){
@@ -629,6 +649,9 @@ function openSheet(){
   document.getElementById('platField').classList.add('hidden');
   fillCat();
   refreshGoodsPlat();
+  const paySel=document.getElementById('fPay'); if(paySel){paySel.value=paySel.options[0]?paySel.options[0].value:'';}
+  document.getElementById('fBank').value='';
+  document.getElementById('bankField').classList.add('hidden');
   document.getElementById('mask').classList.add('show');
 }
 function fillCat(){
@@ -642,6 +665,11 @@ function refreshGoodsPlat(){
   document.getElementById('onlineToggle').classList.toggle('hidden',formType!=='expense');
   document.getElementById('fGoods').innerHTML=state.settings.goodsTypes.map(c=>`<option>${c}</option>`).join('');
   document.getElementById('fPlat').innerHTML=state.settings.platforms.map(c=>`<option>${c}</option>`).join('');
+  const paySel=document.getElementById('fPay');
+  if(paySel&&paySel.dataset.init!=='1'){
+    paySel.innerHTML=state.settings.payMethods.map(c=>`<option>${c}</option>`).join('');
+    paySel.dataset.init='1';
+  }
 }
 function saveRecord(){
   const amount=parseFloat(document.getElementById('fAmount').value);
@@ -656,6 +684,8 @@ function saveRecord(){
     goodsType:formType==='expense'?document.getElementById('fGoods').value:'',
     isOnline:formType==='expense'&&formOnline,
     platform:formType==='expense'&&formOnline?document.getElementById('fPlat').value:'',
+    payMethod:document.getElementById('fPay').value||'',
+    payDetail:document.getElementById('fPay').value==='银行卡'?document.getElementById('fBank').value.trim():'',
     note:document.getElementById('fNote').value.trim(),
     date:document.getElementById('fDate').value,
     createdAt:Date.now()
@@ -688,6 +718,10 @@ document.getElementById('fOnline').onclick=()=>{
   document.getElementById('fOnline').classList.toggle('on',formOnline);
   document.getElementById('platField').classList.toggle('hidden',!formOnline);
 };
+document.getElementById('fPay').onchange=()=>{
+  const isBank=document.getElementById('fPay').value==='银行卡';
+  document.getElementById('bankField').classList.toggle('hidden',!isBank);
+};
 document.getElementById('saveBtn').onclick=saveRecord;
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));
@@ -717,8 +751,8 @@ document.querySelectorAll('.add-inline button').forEach(b=>b.onclick=()=>{
 // 导出
 document.getElementById('exportBtn').onclick=()=>{
   if(!state.records.length){toast('暂无数据');return;}
-  const head=['日期','类型','分类','消费类型','是否网购','平台','金额','备注'];
-  const rows=state.records.filter(r=>!r.deleted).map(r=>[r.date,r.type==='income'?'收入':'支出',r.category,r.goodsType||'',r.isOnline?'是':'否',r.platform||'',r.amount,r.note||'']);
+  const head=['日期','类型','分类','消费类型','是否网购','平台','支付方式','银行尾号','金额','备注'];
+  const rows=state.records.filter(r=>!r.deleted).map(r=>[r.date,r.type==='income'?'收入':'支出',r.category,r.goodsType||'',r.isOnline?'是':'否',r.platform||'',r.payMethod||'',r.payDetail||'',r.amount,r.note||'']);
   const csv='\ufeff'+[head,...rows].map(l=>l.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
