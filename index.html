@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>简记 · 记账 v15</title>
+<title>简记 · 记账 v16</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <style>
   :root{
@@ -157,6 +157,13 @@
   /* stat */
   .stat-card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:15px 16px; margin-bottom:12px;}
   .stat-card .title{font-size:13px; color:var(--sub); margin-bottom:12px; display:flex; justify-content:space-between;}
+  .daybars{display:flex; align-items:flex-end; gap:5px; height:160px; overflow-x:auto; padding:4px 0 0;}
+  .daycol{flex:1; min-width:16px; display:flex; flex-direction:column; align-items:center; height:100%;}
+  .daycol .bars{display:flex; align-items:flex-end; justify-content:center; gap:2px; height:100%; width:100%;}
+  .daycol .db{width:8px; min-height:2px; border-radius:3px 3px 0 0; cursor:default;}
+  .daycol .db.exp{background:var(--red);}
+  .daycol .db.inc{background:var(--green);}
+  .daycol .dl{font-size:9px; color:var(--hint); margin-top:5px; white-space:nowrap;}
   .donut-wrap{display:flex; align-items:center; gap:16px;}
   .donut{width:110px; height:110px; border-radius:50%; flex-shrink:0; position:relative;}
   .donut .hole{position:absolute; inset:26px; background:var(--card); border-radius:50%; display:flex;
@@ -261,6 +268,15 @@
           <div class="cell" style="flex:1;background:var(--bg);border-radius:10px;padding:10px;"><div class="k" style="font-size:11px;color:var(--sub);">支出</div><div class="v" style="font-size:16px;font-weight:600;color:var(--red);" id="stExp">¥0</div></div>
           <div class="cell" style="flex:1;background:var(--bg);border-radius:10px;padding:10px;"><div class="k" style="font-size:11px;color:var(--sub);">结余</div><div class="v" style="font-size:16px;font-weight:600;" id="stBal">¥0</div></div>
         </div>
+      </div>
+      <div class="stat-card">
+        <div class="title"><span>每日收支</span></div>
+        <div class="seg3" id="daySeg" style="margin-bottom:12px;width:fit-content;">
+          <button class="on" data-d="all">全部</button>
+          <button data-d="expense" class="t-expense">支出</button>
+          <button data-d="income" class="t-income">收入</button>
+        </div>
+        <div id="dayChart"></div>
       </div>
       <div class="stat-card">
         <div class="title"><span>支出 · 分类占比</span><span id="catTotal">¥0</span></div>
@@ -603,6 +619,7 @@ let curType='all';
 let curGoods='all';
 let curPay='all';
 let curDate='all';
+let curDayType='all';
 let formType='expense';
 let formOnline=false;
 let editingId=null;
@@ -738,6 +755,7 @@ function renderStat(){
   const byPay={}; rs.forEach(r=>{ if(r.payMethod) byPay[r.payMethod]=(byPay[r.payMethod]||0)+ +r.amount; });
   renderBars('payChart','payTotal',byPay,exp);
   document.getElementById('payEmpty').classList.toggle('hidden',rs.filter(r=>r.payMethod).length>0);
+  renderDayChart();
 }
 
 function renderBars(chartId,totalId,obj,total){
@@ -750,6 +768,38 @@ function renderBars(chartId,totalId,obj,total){
     const c=COLORS[i%COLORS.length];
     return `<div class="bar"><div class="bl"><span class="bn">${k}</span><span>${money0(v)} · ${pct.toFixed(0)}%</span></div>
       <div class="track"><div class="fill" style="width:${pct.toFixed(1)}%;background:${c}"></div></div></div>`;
+  }).join('');
+}
+
+function renderDayChart(){
+  const type=curDayType;
+  const rs=monthRecords().filter(r=>!r.deleted);
+  const days={};
+  rs.forEach(r=>{
+    const key=r.date.slice(0,10);
+    if(!days[key])days[key]={exp:0,inc:0};
+    if(r.type==='income')days[key].inc+= +r.amount; else days[key].exp+= +r.amount;
+  });
+  const keys=Object.keys(days).sort();
+  const box=document.getElementById('dayChart');
+  if(!keys.length){box.innerHTML='<div class="empty">本月暂无记录</div>';return;}
+  const maxExp=Math.max(1,...keys.map(k=>days[k].exp));
+  const maxInc=Math.max(1,...keys.map(k=>days[k].inc));
+  let maxV=1;
+  if(type==='expense')maxV=maxExp;
+  else if(type==='income')maxV=maxInc;
+  else maxV=Math.max(maxExp,maxInc);
+  box.innerHTML=keys.map(k=>{
+    const d=days[k];
+    const day=k.slice(8);
+    let bars='';
+    if(type==='all'||type==='expense'){
+      bars+=`<div class="db exp" style="height:${(d.exp/maxV*100).toFixed(1)}%" title="${k} 支出 ${money0(d.exp)}"></div>`;
+    }
+    if(type==='all'||type==='income'){
+      bars+=`<div class="db inc" style="height:${(d.inc/maxV*100).toFixed(1)}%" title="${k} 收入 ${money0(d.inc)}"></div>`;
+    }
+    return `<div class="daycol"><div class="bars">${bars}</div><div class="dl">${day}</div></div>`;
   }).join('');
 }
 
@@ -895,6 +945,12 @@ function shiftMonth(ym,d){
 // 筛选：收支类型
 document.querySelectorAll('#typeFilter button').forEach(b=>b.onclick=()=>{
   curType=b.dataset.t;renderFilterUI();renderList();
+});
+// 统计：每日收支图筛选（全部/支出/收入）
+document.querySelectorAll('#daySeg button').forEach(b=>b.onclick=()=>{
+  curDayType=b.dataset.d;
+  document.querySelectorAll('#daySeg button').forEach(x=>x.classList.toggle('on',x===b));
+  renderDayChart();
 });
 // 筛选：日期
 document.getElementById('dateFilter').onchange=function(){
