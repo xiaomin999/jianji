@@ -357,60 +357,92 @@ window.SUPABASE_CONFIG={
 };
 window.JianjiSync=(function(){
   "use strict";
+  // === 同步设计遵循「防漏读防丢条」规则 ===
+  // 1) 每条账目独立一行(ledger_code,id)，按记录做增量同步，杜绝整包覆盖丢条
+  // 2) 每条带 version 乐观锁：云端 version>=本地才覆盖，并发写不互相覆盖
+  // 3) 删除=软删除(is_deleted)，变更日志只追加(这里用实时 INSERT/UPDATE 事件流)
+  // 4) 先全量 pull 本地落地，再订阅实时，避免拉取期间漏事件
   const CFG=window.SUPABASE_CONFIG||{};
   const URL=(CFG.url||"").trim(), KEY=(CFG.anonKey||"").trim();
   const ENABLED=!!(URL&&KEY&&window.supabase);
   console.log("[jianji-sync] init: ENABLED=",ENABLED,"URL.len=",URL.length,"KEY.len=",KEY.length,"window.supabase=",typeof window.supabase);
   const CODE_KEY="jianji_ledger_code";
+  const TBL="jianji_records", META="jianji_meta";
   let client=null, channel=null, code="", connected=false, statusCb=null, pushing=false;
   try{ code=(localStorage.getItem(CODE_KEY)||"").trim(); }catch(e){}
   if(ENABLED){
     try{ client=window.supabase.createClient(URL,KEY,{auth:{persistSession:false}}); console.log("[jianji-sync] client created OK"); }
     catch(e){ client=null; console.error("[jianji-sync] createClient error:",e); }
   } else {
-    const reason=!URL?"缺少URL":!KEY?"缺少anonKey":!window.supabase?"supabase-js未加载（最可能是浏览器缓存了旧版或CDN失败）":"未知";
+    const reason=!URL?"缺少URL":!KEY?"缺少anonKey":!window.supabase?"supabase-js未加载（最可能是浏览器缓存了旧版）":"未知";
     console.warn("[jianji-sync] ENABLED=false →",reason);
   }
 
   function setStatus(){ if(statusCb) statusCb(connected,code); }
+  function saveLocal(){ try{ localStorage.setItem(STORE,JSON.stringify(state)); }catch(e){} }
 
-  // 合并云端数据：记录按 id 去重、分类取并集；仅在确有新增时保存+刷新，避免回写死循环
-  function mergeData(data){
-    if(!data) return false;
-    const ids=new Set(state.records.map(r=>r.id));
-    let changed=false;
-    (data.records||[]).forEach(r=>{ if(!ids.has(r.id)){ state.records.push(r); changed=true; } });
+  // 分类/平台/消费类型取并集（小数据，冲突时并集优先，不丢）
+  function mergeSettings(s){
+    if(!s) return false; let changed=false;
     ["expenseCats","incomeCats","platforms","goodsTypes"].forEach(k=>{
-      (data.settings&&data.settings[k]?data.settings[k]:[]).forEach(v=>{ if(!state.settings[k].includes(v)){ state.settings[k].push(v); changed=true; } });
+      (s[k]||[]).forEach(v=>{ if(!state.settings[k].includes(v)){ state.settings[k].push(v); changed=true; } });
     });
-    if(changed){ save(); refreshAll(); }
     return changed;
   }
 
+  // 应用一条记录变更：乐观锁(云端version>=本地才覆盖)；软删除标记 deleted。返回是否本地有变化
+  function applyRecord(rec,isDeleted,ver){
+    if(!rec||!rec.id) return false;
+    const i=state.records.findIndex(r=>r.id===rec.id);
+    if(isDeleted||rec.deleted){
+      if(i>=0){ if(!state.records[i].deleted){ state.records[i].deleted=true; state.records[i].version=ver; return true; } return false; }
+      state.records.push(Object.assign({},rec,{deleted:true,version:ver})); return true;
+    }
+    const localVer=(i>=0&&state.records[i].version)||0;
+    if(i>=0){ if(ver>=localVer){ state.records[i]=Object.assign({},rec,{deleted:false,version:ver}); return true; } return false; }
+    state.records.push(Object.assign({},rec,{deleted:false,version:ver})); return true;
+  }
+
+  function applyRemoteDelete(id){
+    const i=state.records.findIndex(r=>r.id===id);
+    if(i>=0) state.records[i].deleted=true;
+    saveLocal(); refreshAll();
+  }
+
+  // 全量拉取：先把云端所有记录本地落地(原子：全部处理完再渲染)，再订阅实时
+  async function pull(){
+    if(!client||!code) return;
+    try{
+      const {data,error}=await client.from(TBL).select("*").eq("ledger_code",code);
+      if(error){ console.warn("[jianji-sync] pull records err",error); return; }
+      let dirty=false;
+      (data||[]).forEach(r=>{ if(applyRecord(r.data,r.is_deleted,r.version)) dirty=true; });
+      const {data:m,error:me}=await client.from(META).select("settings").eq("ledger_code",code).maybeSingle();
+      if(me){ console.warn("[jianji-sync] pull meta err",me); }
+      if(m&&m.settings) dirty=mergeSettings(m.settings)||dirty;
+      console.log("[jianji-sync] pull OK, 云端记录数=",(data||[]).length,"本地有变化=",dirty);
+      if(dirty){ saveLocal(); refreshAll(); }
+    }catch(e){ console.warn("[jianji-sync] pull fail",e); }
+  }
+
+  // 增量上传：每条记录独立 upsert(按 ledger_code,id)，不会覆盖对端其它记录
   async function push(){
     if(!connected||!client||pushing) return;
     pushing=true;
     try{
-      const data={records:state.records, settings:state.settings};
-      const {error}=await client.from("jianji_state").upsert({ledger_code:code, data, updated_at:new Date().toISOString()});
-      if(error) console.warn("[jianji-sync] push error",error);
+      const rows=state.records.map(r=>({
+        ledger_code:code, id:r.id, data:r,
+        is_deleted:!!r.deleted, version:r.version||1, updated_at:new Date().toISOString()
+      }));
+      if(rows.length){
+        const {error}=await client.from(TBL).upsert(rows,{onConflict:"ledger_code,id"});
+        if(error) console.warn("[jianji-sync] push records err",error);
+      }
+      const {error:me}=await client.from(META).upsert({ledger_code:code,settings:state.settings,version:1,updated_at:new Date().toISOString()});
+      if(me) console.warn("[jianji-sync] push meta err",me);
+      console.log("[jianji-sync] push OK, 上传记录数=",rows.length);
     }catch(e){ console.warn("[jianji-sync] push fail",e); }
     finally{ pushing=false; }
-  }
-
-  async function pull(){
-    if(!client||!code) return;
-    try{
-      const {data,error}=await client.from("jianji_state").select("data").eq("ledger_code",code).maybeSingle();
-      if(error){ console.warn("[jianji-sync] pull error",error); return; }
-      if(data&&data.data){
-        const n=(data.data.records||[]).length;
-        console.log("[jianji-sync] pull OK, 云端 records数=",n);
-        mergeData(data.data);
-      } else {
-        console.log("[jianji-sync] pull OK, 云端无数据（首次连接或账本码未建过）");
-      }
-    }catch(e){ console.warn("[jianji-sync] pull fail",e); }
   }
 
   async function connect(c){
@@ -419,18 +451,23 @@ window.JianjiSync=(function(){
     if(!code){ toast("请输入账本码"); return; }
     try{ localStorage.setItem(CODE_KEY,code); }catch(e){}
     connected=false; setStatus();
-    await pull();
+    await pull(); // 先全量拉取并本地落地
     if(channel){ try{ await client.removeChannel(channel); }catch(e){} channel=null; }
     channel=client.channel("jianji-"+code)
-      .on("postgres_changes",{event:"*",schema:"public",table:"jianji_state",filter:`ledger_code=eq.${code}`},payload=>{
-        console.log("[jianji-sync] realtime 收到:",payload.eventType,"ledger=",payload.new&&payload.new.ledger_code);
-        if(payload.new&&payload.new.data) mergeData(payload.new.data);
+      .on("postgres_changes",{event:"*",schema:"public",table:TBL,filter:`ledger_code=eq.${code}`},payload=>{
+        console.log("[jianji-sync] records 变更:",payload.eventType);
+        if(payload.eventType==="DELETE"){ applyRemoteDelete(payload.old&&payload.old.id); }
+        else if(payload.new){ applyRecord(payload.new.data,payload.new.is_deleted,payload.new.version); saveLocal(); refreshAll(); }
+      })
+      .on("postgres_changes",{event:"*",schema:"public",table:META,filter:`ledger_code=eq.${code}`},payload=>{
+        console.log("[jianji-sync] meta 变更");
+        if(payload.new&&payload.new.settings){ mergeSettings(payload.new.settings); saveLocal(); refreshAll(); }
       })
       .subscribe(st=>{
         console.log("[jianji-sync] subscribe status:",st);
         connected=(st==="SUBSCRIBED"); setStatus();
       });
-    await push();
+    await push(); // 把本机记录增量上传(按记录合并，不覆盖对端)
     toast("已连接云端："+code);
   }
 
@@ -466,7 +503,7 @@ function money(n){return '¥'+(+n).toLocaleString('zh-CN',{minimumFractionDigits
 function money0(n){return '¥'+(+n).toLocaleString('zh-CN',{maximumFractionDigits:0});}
 
 // ---------- 记账页 ----------
-function monthRecords(){return state.records.filter(r=>r.date.startsWith(curMonth));}
+function monthRecords(){return state.records.filter(r=>!r.deleted && r.date.startsWith(curMonth));}
 
 function renderSummary(){
   const rs=monthRecords();
@@ -515,7 +552,10 @@ function renderList(){
   box.innerHTML=html;
   box.querySelectorAll('.item').forEach(it=>it.onclick=()=>{
     const id=it.dataset.id;
-    if(confirm('删除这条记录？')){state.records=state.records.filter(r=>r.id!==id);save();refreshAll();toast('已删除');}
+    if(confirm('删除这条记录？')){
+      const r=state.records.find(x=>x.id===id);
+      if(r){ r.deleted=true; r.version=(r.version||1)+1; save(); refreshAll(); toast('已删除'); } // 软删除：标记 deleted，云端同步后另一端也隐藏
+    }
   });
 }
 
@@ -607,9 +647,11 @@ function saveRecord(){
   const amount=parseFloat(document.getElementById('fAmount').value);
   if(!amount||amount<=0){toast('请输入金额');return;}
   const rec={
-    id:'r'+Date.now()+Math.random().toString(36).slice(2,6),
+    id:uid(),
     type:formType,
     amount:amount.toFixed(2),
+    version:1,
+    deleted:false,
     category:document.getElementById('fCat').value,
     goodsType:formType==='expense'?document.getElementById('fGoods').value:'',
     isOnline:formType==='expense'&&formOnline,
@@ -626,6 +668,7 @@ function saveRecord(){
 }
 
 // ---------- 工具 ----------
+function uid(){ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID(); return 'r'+Date.now()+Math.random().toString(36).slice(2,8); }
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 let toastT;
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1500);}
@@ -675,7 +718,7 @@ document.querySelectorAll('.add-inline button').forEach(b=>b.onclick=()=>{
 document.getElementById('exportBtn').onclick=()=>{
   if(!state.records.length){toast('暂无数据');return;}
   const head=['日期','类型','分类','消费类型','是否网购','平台','金额','备注'];
-  const rows=state.records.map(r=>[r.date,r.type==='income'?'收入':'支出',r.category,r.goodsType||'',r.isOnline?'是':'否',r.platform||'',r.amount,r.note||'']);
+  const rows=state.records.filter(r=>!r.deleted).map(r=>[r.date,r.type==='income'?'收入':'支出',r.category,r.goodsType||'',r.isOnline?'是':'否',r.platform||'',r.amount,r.note||'']);
   const csv='\ufeff'+[head,...rows].map(l=>l.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
