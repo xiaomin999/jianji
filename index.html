@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>简记 · 记账 v14</title>
+<title>简记 · 记账 v15</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <style>
   :root{
@@ -77,7 +77,19 @@
   .chip.t-expense.on{background:var(--red); border-color:var(--red);}
 
   /* 筛选区 */
-  .filtbar{margin:6px 0 12px;}
+  .filtbar{position:relative; margin:6px 0 12px;}
+  .filt-btn{display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:10px; border:1px solid var(--line); background:var(--card); border-radius:10px; font-size:13px; color:var(--sub); cursor:pointer;}
+  .filt-btn:active{background:var(--bg);}
+  .filt-btn .filt-count{display:none; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--blue); color:#fff; font-size:11px; line-height:18px; text-align:center;}
+  .filt-btn .filt-count.on{display:inline-block;}
+  .filt-panel{display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:50; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.12); padding:14px; max-height:68vh; overflow-y:auto;}
+  .filt-panel.show{display:block;}
+  .fp-group{margin-bottom:14px;}
+  .fp-group:last-of-type{margin-bottom:10px;}
+  .fp-label{font-size:12px; color:var(--hint); margin:0 2px 7px; font-weight:600;}
+  .fp-actions{display:flex; gap:8px;}
+  .fp-reset{flex:1; padding:10px; border:1px solid var(--line); background:var(--bg); border-radius:10px; font-size:13px; color:var(--sub); cursor:pointer;}
+  .fp-done{flex:1; padding:10px; border:none; background:var(--blue); color:#fff; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer;}
   .frow{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
   .seg3{display:flex; background:var(--bg); border-radius:10px; padding:3px; gap:2px;}
   .seg3 button{flex:1; border:none; background:none; padding:6px 10px; border-radius:8px; font-size:12px;
@@ -202,20 +214,40 @@
         </div>
       </div>
       <div class="filtbar">
-        <div class="frow">
-          <div class="seg3" id="typeFilter">
-            <button class="on" data-t="all">全部</button>
-            <button data-t="expense" class="t-expense">支出</button>
-            <button data-t="income" class="t-income">收入</button>
+        <button class="filt-btn" id="filtBtn">筛选 ▾<span class="filt-count" id="filtCount"></span></button>
+        <div class="filt-panel" id="filtPanel">
+          <div class="fp-group">
+            <div class="fp-label">收支类型</div>
+            <div class="seg3" id="typeFilter">
+              <button class="on" data-t="all">全部</button>
+              <button data-t="expense" class="t-expense">支出</button>
+              <button data-t="income" class="t-income">收入</button>
+            </div>
           </div>
-          <div class="datepick">
-            <input type="date" id="dateFilter" title="按日期筛选">
-            <button class="clr" id="clearDate" title="清除日期筛选">✕</button>
+          <div class="fp-group">
+            <div class="fp-label">日期</div>
+            <div class="datepick">
+              <input type="date" id="dateFilter" title="按日期筛选">
+              <button class="clr" id="clearDate" title="清除日期筛选">✕</button>
+            </div>
+          </div>
+          <div class="fp-group">
+            <div class="fp-label">分类</div>
+            <div class="filters" id="filters"></div>
+          </div>
+          <div class="fp-group">
+            <div class="fp-label">消费类型</div>
+            <div class="filters scrollx" id="goodsFilter"></div>
+          </div>
+          <div class="fp-group">
+            <div class="fp-label">支付方式</div>
+            <div class="filters scrollx" id="payFilter"></div>
+          </div>
+          <div class="fp-actions">
+            <button class="fp-reset" id="filtReset">重置</button>
+            <button class="fp-done" id="filtDone">完成</button>
           </div>
         </div>
-        <div class="fgroup"><div class="glabel">分类</div><div class="filters" id="filters"></div></div>
-        <div class="fgroup"><div class="glabel">消费类型</div><div class="filters scrollx" id="goodsFilter"></div></div>
-        <div class="fgroup"><div class="glabel">支付方式</div><div class="filters scrollx" id="payFilter"></div></div>
       </div>
       <div class="list" id="list"></div>
     </section>
@@ -592,6 +624,11 @@ function renderSummary(){
   document.getElementById('curM').textContent=curMonth;
 }
 
+function updateFiltBadge(){
+  const n=[curType,curFilter,curGoods,curPay,curDate].filter(v=>v&&v!=='all').length;
+  const el=document.getElementById('filtCount');
+  if(n>0){el.textContent=n;el.classList.add('on');} else {el.classList.remove('on');}
+}
 function renderFilterUI(){
   // 分类
   const box=document.getElementById('filters');
@@ -615,6 +652,7 @@ function renderFilterUI(){
   document.querySelectorAll('#typeFilter button').forEach(b=>b.classList.toggle('on',b.dataset.t===curType));
   // 日期
   document.getElementById('dateFilter').value=curDate!=='all'?curDate:'';
+  updateFiltBadge();
 }
 
 function renderList(){
@@ -865,6 +903,16 @@ document.getElementById('dateFilter').onchange=function(){
   renderFilterUI();renderList();
 };
 document.getElementById('clearDate').onclick=()=>{curDate='all';renderFilterUI();renderList();};
+// 筛选面板：开关 / 外部点击关闭 / 重置 / 完成
+document.getElementById('filtBtn').onclick=()=>{document.getElementById('filtPanel').classList.toggle('show');};
+document.getElementById('filtDone').onclick=()=>{document.getElementById('filtPanel').classList.remove('show');};
+document.getElementById('filtReset').onclick=()=>{curType='all';curFilter='all';curGoods='all';curPay='all';curDate='all';renderFilterUI();renderList();};
+document.addEventListener('click',e=>{
+  const p=document.getElementById('filtPanel');
+  if(!p.classList.contains('show'))return;
+  if(p.contains(e.target)||document.getElementById('filtBtn').contains(e.target))return;
+  p.classList.remove('show');
+});
 // 新增分类
 document.querySelectorAll('.add-inline button').forEach(b=>b.onclick=()=>{
   const kind=b.dataset.add;
