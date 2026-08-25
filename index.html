@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>简记 · 记账 v13</title>
+<title>简记 · 记账 v14</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <style>
   :root{
@@ -73,6 +73,27 @@
   .chip{font-size:12px; padding:6px 12px; border-radius:20px; background:var(--card); border:1px solid var(--line);
     color:var(--sub); cursor:pointer;}
   .chip.on{background:var(--blue); color:#fff; border-color:var(--blue);}
+  .chip.t-income.on{background:var(--green); border-color:var(--green);}
+  .chip.t-expense.on{background:var(--red); border-color:var(--red);}
+
+  /* 筛选区 */
+  .filtbar{margin:6px 0 12px;}
+  .frow{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .seg3{display:flex; background:var(--bg); border-radius:10px; padding:3px; gap:2px;}
+  .seg3 button{flex:1; border:none; background:none; padding:6px 10px; border-radius:8px; font-size:12px;
+    color:var(--sub); cursor:pointer; font-weight:500; white-space:nowrap;}
+  .seg3 button.on{background:var(--blue); color:#fff;}
+  .seg3 button.on.t-income{background:var(--green);}
+  .seg3 button.on.t-expense{background:var(--red);}
+  .datepick{display:flex; align-items:center; gap:4px; margin-left:auto;}
+  .datepick input{border:1px solid var(--line); border-radius:8px; padding:5px 8px; font-size:12px;
+    background:var(--card); color:var(--txt); outline:none; max-width:130px;}
+  .datepick .clr{border:1px solid var(--line); background:var(--card); border-radius:8px; color:var(--sub);
+    font-size:12px; padding:5px 8px; cursor:pointer;}
+  .fgroup{margin-bottom:8px;}
+  .glabel{font-size:11px; color:var(--hint); margin:0 2px 4px;}
+  .scrollx{overflow-x:auto; flex-wrap:nowrap; padding-bottom:2px; -webkit-overflow-scrolling:touch;}
+  .scrollx .chip{flex-shrink:0;}
 
   /* fab */
   .fab{position:fixed; left:50%; transform:translateX(-50%); bottom:78px; z-index:20;
@@ -180,7 +201,22 @@
           <div class="cell"><div class="k">支出</div><div class="v" id="sExp">¥0.00</div></div>
         </div>
       </div>
-      <div class="filters" id="filters"></div>
+      <div class="filtbar">
+        <div class="frow">
+          <div class="seg3" id="typeFilter">
+            <button class="on" data-t="all">全部</button>
+            <button data-t="expense" class="t-expense">支出</button>
+            <button data-t="income" class="t-income">收入</button>
+          </div>
+          <div class="datepick">
+            <input type="date" id="dateFilter" title="按日期筛选">
+            <button class="clr" id="clearDate" title="清除日期筛选">✕</button>
+          </div>
+        </div>
+        <div class="fgroup"><div class="glabel">分类</div><div class="filters" id="filters"></div></div>
+        <div class="fgroup"><div class="glabel">消费类型</div><div class="filters scrollx" id="goodsFilter"></div></div>
+        <div class="fgroup"><div class="glabel">支付方式</div><div class="filters scrollx" id="payFilter"></div></div>
+      </div>
       <div class="list" id="list"></div>
     </section>
 
@@ -294,6 +330,10 @@
     <div class="field hidden" id="bankField">
       <label>银行与尾号</label>
       <input id="fBank" placeholder="如 招商银行 6688" style="text-align:left;">
+    </div>
+    <div class="field">
+      <label>商户名称</label>
+      <input id="fMerchant" placeholder="如 星巴克、盒马（选填）" style="text-align:left;">
     </div>
     <div class="row2">
       <div class="field" style="flex:1.2;">
@@ -527,6 +567,10 @@ window.JianjiSync=(function(){
 
 let curMonth=fmtMonth(new Date());
 let curFilter='all';
+let curType='all';
+let curGoods='all';
+let curPay='all';
+let curDate='all';
 let formType='expense';
 let formOnline=false;
 let editingId=null;
@@ -548,19 +592,42 @@ function renderSummary(){
   document.getElementById('curM').textContent=curMonth;
 }
 
-function renderFilters(){
+function renderFilterUI(){
+  // 分类
   const box=document.getElementById('filters');
   const opts=[{k:'all',t:'全部'}];
-  (state.settings.expenseCats||[]).slice(0,6).forEach(c=>opts.push({k:c,t:c}));
+  (state.settings.expenseCats||[]).forEach(c=>opts.push({k:c,t:c}));
   box.innerHTML=opts.map(o=>`<span class="chip ${curFilter===o.k?'on':''}" data-f="${o.k}">${o.t}</span>`).join('');
-  box.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{curFilter=c.dataset.f;renderList();renderFilters();});
+  box.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{curFilter=c.dataset.f;renderList();renderFilterUI();});
+  // 消费类型
+  const gbox=document.getElementById('goodsFilter');
+  const gopts=[{k:'all',t:'全部'}];
+  (state.settings.goodsTypes||[]).forEach(c=>gopts.push({k:c,t:c}));
+  gbox.innerHTML=gopts.map(o=>`<span class="chip ${curGoods===o.k?'on':''}" data-g="${o.k}">${o.t}</span>`).join('');
+  gbox.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{curGoods=c.dataset.g;renderList();renderFilterUI();});
+  // 支付方式
+  const pbox=document.getElementById('payFilter');
+  const popts=[{k:'all',t:'全部'}];
+  (state.settings.payMethods||[]).forEach(c=>popts.push({k:c,t:c}));
+  pbox.innerHTML=popts.map(o=>`<span class="chip ${curPay===o.k?'on':''}" data-p="${o.k}">${o.t}</span>`).join('');
+  pbox.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{curPay=c.dataset.p;renderList();renderFilterUI();});
+  // 类型切换
+  document.querySelectorAll('#typeFilter button').forEach(b=>b.classList.toggle('on',b.dataset.t===curType));
+  // 日期
+  document.getElementById('dateFilter').value=curDate!=='all'?curDate:'';
 }
 
 function renderList(){
   const box=document.getElementById('list');
-  let rs=monthRecords().slice().sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt);
+  let rs=state.records.filter(r=>!r.deleted);
+  if(curDate!=='all') rs=rs.filter(r=>r.date===curDate);
+  else rs=rs.filter(r=>r.date.startsWith(curMonth));
+  if(curType!=='all') rs=rs.filter(r=>r.type===curType);
   if(curFilter!=='all') rs=rs.filter(r=>r.category===curFilter);
-  if(!rs.length){box.innerHTML='<div class="empty">本月还没有记录<br>点右下角 + 记一笔吧</div>';return;}
+  if(curGoods!=='all') rs=rs.filter(r=>r.goodsType===curGoods);
+  if(curPay!=='all') rs=rs.filter(r=>r.payMethod===curPay);
+  rs.sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt);
+  if(!rs.length){box.innerHTML='<div class="empty">没有符合条件的记录<br>调整上方筛选，或点右下角 + 记一笔</div>';return;}
   let html='',lastDay='';
   rs.forEach(r=>{
     const day=r.date.slice(5);
@@ -574,10 +641,11 @@ function renderList(){
     if(r.payMethod) tags.push(`<span class="tag pay">${r.payMethod}${r.payDetail?('·'+escapeHtml(r.payDetail)):''}</span>`);
     const sign=r.type==='income'?'+':'-';
     const ico=r.type==='income'?'💰':(ICONS[r.category]||'🛒');
+    const title=r.merchant?`${escapeHtml(r.merchant)}（${r.category}）`:r.category;
     html+=`<div class="item" data-id="${r.id}">
       <div class="ico">${ico}</div>
       <div class="mid">
-        <div class="t1">${r.category}${r.note?(' · '+escapeHtml(r.note)):''}</div>
+        <div class="t1">${title}${r.note?(' · '+escapeHtml(r.note)):''}</div>
         <div class="t2">${tags.join('')}</div>
       </div>
       <div class="amt ${r.type==='income'?'inc':'exp'}">${sign}${money0(r.amount)}</div>
@@ -680,6 +748,7 @@ function openSheet(rec){
   document.getElementById('fAmount').value=rec?(+rec.amount):'';
   document.getElementById('fDate').value=rec?rec.date:new Date().toISOString().slice(0,10);
   document.getElementById('fNote').value=rec?(rec.note||''):'';
+  document.getElementById('fMerchant').value=rec?(rec.merchant||''):'';
   document.getElementById('fOnline').classList.toggle('on',formOnline);
   document.getElementById('platField').classList.toggle('hidden',!formOnline);
   fillCat();
@@ -724,6 +793,7 @@ function saveRecord(){
     payMethod:document.getElementById('fPay').value||'',
     payDetail:document.getElementById('fPay').value==='银行卡'?document.getElementById('fBank').value.trim():'',
     note:document.getElementById('fNote').value.trim(),
+    merchant:document.getElementById('fMerchant').value.trim(),
     date:document.getElementById('fDate').value
   };
   if(editingId){
@@ -748,7 +818,7 @@ function uid(){ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID();
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 let toastT;
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1500);}
-function refreshAll(){renderSummary();renderFilters();renderList();renderStat();renderMe();}
+function refreshAll(){renderSummary();renderFilterUI();renderList();renderStat();renderMe();}
 
 // ---------- 事件 ----------
 document.getElementById('fab').onclick=function(e){ try{ openSheet(); }catch(err){ console.error('[简记] openSheet 报错:',err); alert('打开记账页失败：'+(err&&err.message||err)); } };
@@ -778,12 +848,23 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   if(b.dataset.tab==='stat')renderStat();
   if(b.dataset.tab==='me')renderMe();
 });
-document.getElementById('prevM').onclick=()=>{curMonth=shiftMonth(curMonth,-1);refreshAll();};
-document.getElementById('nextM').onclick=()=>{curMonth=shiftMonth(curMonth,1);refreshAll();};
+document.getElementById('prevM').onclick=()=>{curDate='all';curMonth=shiftMonth(curMonth,-1);refreshAll();};
+document.getElementById('nextM').onclick=()=>{curDate='all';curMonth=shiftMonth(curMonth,1);refreshAll();};
 function shiftMonth(ym,d){
   let[y,m]=ym.split('-').map(Number);let dt=new Date(y,m-1+d,1);
   return fmtMonth(dt);
 }
+// 筛选：收支类型
+document.querySelectorAll('#typeFilter button').forEach(b=>b.onclick=()=>{
+  curType=b.dataset.t;renderFilterUI();renderList();
+});
+// 筛选：日期
+document.getElementById('dateFilter').onchange=function(){
+  curDate=this.value||'all';
+  if(curDate!=='all'){ const ym=curDate.slice(0,7); if(ym!==curMonth){curMonth=ym;} }
+  renderFilterUI();renderList();
+};
+document.getElementById('clearDate').onclick=()=>{curDate='all';renderFilterUI();renderList();};
 // 新增分类
 document.querySelectorAll('.add-inline button').forEach(b=>b.onclick=()=>{
   const kind=b.dataset.add;
@@ -799,8 +880,8 @@ document.querySelectorAll('.add-inline button').forEach(b=>b.onclick=()=>{
 // 导出
 document.getElementById('exportBtn').onclick=()=>{
   if(!state.records.length){toast('暂无数据');return;}
-  const head=['日期','类型','分类','消费类型','是否网购','平台','支付方式','银行尾号','金额','备注'];
-  const rows=state.records.filter(r=>!r.deleted).map(r=>[r.date,r.type==='income'?'收入':'支出',r.category,r.goodsType||'',r.isOnline?'是':'否',r.platform||'',r.payMethod||'',r.payDetail||'',r.amount,r.note||'']);
+  const head=['日期','类型','分类','消费类型','是否网购','平台','支付方式','银行尾号','商户名称','金额','备注'];
+  const rows=state.records.filter(r=>!r.deleted).map(r=>[r.date,r.type==='income'?'收入':'支出',r.category,r.goodsType||'',r.isOnline?'是':'否',r.platform||'',r.payMethod||'',r.payDetail||'',r.merchant||'',r.amount,r.note||'']);
   const csv='\ufeff'+[head,...rows].map(l=>l.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
