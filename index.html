@@ -705,7 +705,7 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 function refreshAll(){renderSummary();renderFilters();renderList();renderStat();renderMe();}
 
 // ---------- 事件 ----------
-document.getElementById('fab').onclick=openSheet;
+document.getElementById('fab').onclick=function(e){ try{ openSheet(); }catch(err){ console.error('[简记] openSheet 报错:',err); alert('打开记账页失败：'+(err&&err.message||err)); } };
 document.getElementById('closeSheet').onclick=()=>document.getElementById('mask').classList.remove('show');
 document.getElementById('mask').onclick=e=>{if(e.target.id==='mask')document.getElementById('mask').classList.remove('show');};
 document.querySelectorAll('#typeSeg button').forEach(b=>b.onclick=()=>{
