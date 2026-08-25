@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>简记 · 记账 v16</title>
+<title>简记 · 记账 v17</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <style>
   :root{
@@ -180,6 +180,49 @@
   .bar .track{height:8px; background:var(--bg); border-radius:5px; overflow:hidden;}
   .bar .fill{height:8px; border-radius:5px;}
 
+  /* summary header card */
+  .sum-card{background:linear-gradient(135deg,#07C160 0%,#05a350 100%); color:#fff; border-radius:var(--radius); padding:18px 16px; margin:0 0 12px; position:relative; overflow:hidden; box-shadow:0 8px 20px rgba(7,193,96,.22);}
+  .sum-card .sum-head{display:flex; justify-content:space-between; align-items:flex-start;}
+  .sum-card .sum-month{font-size:16px; font-weight:600; display:flex; align-items:center; gap:4px;}
+  .sum-card .sum-month .ym{font-size:16px;}
+  .sum-card .sum-seg{display:flex; background:rgba(255,255,255,.18); border-radius:12px; padding:3px; gap:2px;}
+  .sum-card .sum-seg button{border:none; background:none; color:rgba(255,255,255,.85); font-size:12px; padding:5px 11px; border-radius:9px; cursor:pointer; font-weight:500;}
+  .sum-card .sum-seg button.on{background:#fff; color:#07C160;}
+  .sum-card .sum-sub{margin:14px 0 4px; font-size:12px; opacity:.85;}
+  .sum-card .sum-big{font-size:34px; font-weight:700; letter-spacing:-.5px; display:flex; align-items:baseline; gap:2px;}
+  .sum-card .sum-big .cur{font-size:20px; font-weight:500;}
+  .sum-card .sum-sub span{font-weight:600;}
+
+  /* monthly compare */
+  .mchart{display:flex; align-items:flex-end; gap:8px; height:150px; padding:10px 0 0;}
+  .mcol{flex:1; display:flex; flex-direction:column; align-items:center; height:100%;}
+  .mcol .mnum{font-size:10px; color:var(--hint); margin-bottom:5px; white-space:nowrap;}
+  .mcol .mbar{flex:1; width:100%; display:flex; align-items:flex-end; justify-content:center;}
+  .mcol .mbar .mf{min-height:4px; width:28px; border-radius:4px 4px 0 0; background:#07C160; opacity:.55;}
+  .mcol .mcurrent .mf{opacity:1; background:#07C160;}
+  .mcol .mlabel{font-size:11px; color:var(--sub); margin-top:6px;}
+  .mcol .mcurrent .mlabel{color:#07C160; font-weight:600;}
+
+  /* category composition */
+  .compo-row{display:flex; align-items:center; gap:10px; margin-bottom:13px;}
+  .compo-ico{width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0; background:var(--bg);}
+  .compo-info{flex:1;}
+  .compo-info .cname{font-size:13px; color:var(--txt); margin-bottom:4px;}
+  .compo-info .cmeta{font-size:11px; color:var(--hint);}
+  .compo-bar{height:6px; background:var(--bg); border-radius:4px; overflow:hidden; margin-top:5px;}
+  .compo-fill{height:100%; border-radius:4px;}
+  .compo-amt{font-size:14px; font-weight:600; color:var(--txt); text-align:right; min-width:60px;}
+
+  /* rank list */
+  .rank-row{display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line);}
+  .rank-row:last-child{border-bottom:none; padding-bottom:0;}
+  .rank-idx{width:22px; height:22px; border-radius:50%; background:var(--bg); color:var(--sub); font-size:12px; font-weight:600; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .rank-row.top1 .rank-idx{background:#FFD700; color:#7A5C00;}
+  .rank-row.top2 .rank-idx{background:#C0C0C0; color:#555;}
+  .rank-row.top3 .rank-idx{background:#CD7F32; color:#fff;}
+  .rank-name{flex:1; font-size:14px; color:var(--txt);}
+  .rank-amt{font-size:14px; font-weight:600; color:var(--red);}
+
   /* me */
   .me-sec{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); margin-bottom:12px; overflow:hidden;}
   .me-sec .sec-h{padding:13px 16px; font-size:13px; color:var(--sub); border-bottom:1px solid var(--line);}
@@ -261,14 +304,38 @@
 
     <!-- 统计 -->
     <section class="tab" id="tab-stat">
-      <div class="stat-card">
-        <div class="title"><span>本月收支</span><span id="statM">2026-08</span></div>
-        <div class="row" style="display:flex;gap:10px;">
-          <div class="cell" style="flex:1;background:var(--bg);border-radius:10px;padding:10px;"><div class="k" style="font-size:11px;color:var(--sub);">收入</div><div class="v" style="font-size:16px;font-weight:600;color:var(--green);" id="stInc">¥0</div></div>
-          <div class="cell" style="flex:1;background:var(--bg);border-radius:10px;padding:10px;"><div class="k" style="font-size:11px;color:var(--sub);">支出</div><div class="v" style="font-size:16px;font-weight:600;color:var(--red);" id="stExp">¥0</div></div>
-          <div class="cell" style="flex:1;background:var(--bg);border-radius:10px;padding:10px;"><div class="k" style="font-size:11px;color:var(--sub);">结余</div><div class="v" style="font-size:16px;font-weight:600;" id="stBal">¥0</div></div>
+      <!-- 顶部汇总卡片 -->
+      <div class="sum-card">
+        <div class="sum-head">
+          <div class="sum-month"><span id="sumMonth">2026年8月</span><span id="sumCount"></span></div>
+          <div class="sum-seg" id="sumSeg">
+            <button class="on" data-s="expense">支出</button>
+            <button data-s="income">收入</button>
+          </div>
         </div>
+        <div class="sum-sub" id="sumSub">共支出 <span id="sumN">0</span> 笔，合计</div>
+        <div class="sum-big"><span class="cur">¥</span><span id="sumTotal">0.00</span></div>
       </div>
+
+      <!-- 每月支出对比 -->
+      <div class="stat-card">
+        <div class="title"><span>每月支出对比</span></div>
+        <div id="monthChart" class="mchart"></div>
+      </div>
+
+      <!-- 当月支出构成 -->
+      <div class="stat-card">
+        <div class="title"><span>当月支出构成</span><span id="composeTotal">¥0</span></div>
+        <div id="composeChart"></div>
+      </div>
+
+      <!-- 当月支出排行榜 -->
+      <div class="stat-card">
+        <div class="title"><span>当月支出排行榜（Top10）</span></div>
+        <div id="rankList"></div>
+      </div>
+
+      <!-- 每日收支 -->
       <div class="stat-card">
         <div class="title"><span>每日收支</span></div>
         <div class="seg3" id="daySeg" style="margin-bottom:12px;width:fit-content;">
@@ -278,10 +345,8 @@
         </div>
         <div id="dayChart"></div>
       </div>
-      <div class="stat-card">
-        <div class="title"><span>支出 · 分类占比</span><span id="catTotal">¥0</span></div>
-        <div id="catChart"></div>
-      </div>
+
+      <!-- 其它明细 -->
       <div class="stat-card">
         <div class="title"><span>支出 · 消费类型</span><span id="goodsTotal">¥0</span></div>
         <div id="goodsChart"></div>
@@ -620,6 +685,7 @@ let curGoods='all';
 let curPay='all';
 let curDate='all';
 let curDayType='all';
+let curStatType='expense';
 let formType='expense';
 let formOnline=false;
 let editingId=null;
@@ -731,31 +797,107 @@ function renderList(){
 
 // ---------- 统计页 ----------
 function renderStat(){
-  document.getElementById('statM').textContent=curMonth;
-  const rs=monthRecords().filter(r=>r.type==='expense');
-  let inc=0,exp=0;
-  monthRecords().forEach(r=>{if(r.type==='income')inc+=+r.amount;else exp+=+r.amount;});
-  document.getElementById('stInc').textContent=money0(inc);
-  document.getElementById('stExp').textContent=money0(exp);
-  document.getElementById('stBal').textContent=money0(inc-exp);
+  // 汇总卡片
+  const rs=monthRecords().filter(r=>!r.deleted);
+  const isExp=curStatType==='expense';
+  const target=rs.filter(r=>r.type===curStatType);
+  const total=target.reduce((s,r)=>s+ +r.amount,0);
+  const n=target.length;
+  document.getElementById('sumMonth').textContent=fmtCNMonth(curMonth);
+  document.getElementById('sumSub').innerHTML=isExp?`共支出 <span id="sumN">${n}</span> 笔，合计`:`共收入 <span id="sumN">${n}</span> 笔，合计`;
+  document.getElementById('sumTotal').textContent=money0(total);
 
-  // 分类占比
-  const byCat={}; rs.forEach(r=>byCat[r.category]=(byCat[r.category]||0)+ +r.amount);
-  renderBars('catChart','catTotal',byCat,exp);
-  // 消费类型
-  const byGoods={}; rs.forEach(r=>byGoods[r.goodsType]=(byGoods[r.goodsType]||0)+ +r.amount);
-  renderBars('goodsChart','goodsTotal',byGoods,exp);
-  // 平台
-  const byPlat={}; const platRs=rs.filter(r=>r.isOnline);
+  // 每月对比 / 当月构成 / 排行榜
+  renderMonthCompare();
+  renderCompose();
+  renderRankList();
+  renderDayChart();
+
+  // 其它明细（消费类型、平台、支付方式）始终按支出
+  const expRs=monthRecords().filter(r=>!r.deleted && r.type==='expense');
+  const expTotal=expRs.reduce((s,r)=>s+ +r.amount,0);
+  const byGoods={}; expRs.forEach(r=>byGoods[r.goodsType]=(byGoods[r.goodsType]||0)+ +r.amount);
+  renderBars('goodsChart','goodsTotal',byGoods,expTotal);
+  const byPlat={}; const platRs=expRs.filter(r=>r.isOnline);
   platRs.forEach(r=>byPlat[r.platform]=(byPlat[r.platform]||0)+ +r.amount);
   const platSum=platRs.reduce((s,r)=>s+ +r.amount,0);
   renderBars('platChart','platTotal',byPlat,platSum);
   document.getElementById('platEmpty').classList.toggle('hidden',platRs.length>0);
-  // 支付方式
-  const byPay={}; rs.forEach(r=>{ if(r.payMethod) byPay[r.payMethod]=(byPay[r.payMethod]||0)+ +r.amount; });
-  renderBars('payChart','payTotal',byPay,exp);
-  document.getElementById('payEmpty').classList.toggle('hidden',rs.filter(r=>r.payMethod).length>0);
-  renderDayChart();
+  const byPay={}; expRs.forEach(r=>{ if(r.payMethod) byPay[r.payMethod]=(byPay[r.payMethod]||0)+ +r.amount; });
+  renderBars('payChart','payTotal',byPay,expTotal);
+  document.getElementById('payEmpty').classList.toggle('hidden',expRs.filter(r=>r.payMethod).length>0);
+}
+
+function fmtCNMonth(ym){
+  const[y,m]=ym.split('-').map(Number);
+  return `${y}年${m}月`;
+}
+
+// 最近6个月支出/收入柱状图
+function renderMonthCompare(){
+  const months=[];
+  for(let i=-5;i<=0;i++) months.push(shiftMonth(curMonth,i));
+  const map={}; state.records.filter(r=>!r.deleted).forEach(r=>{ if(r.type!==curStatType) return; const ym=r.date.slice(0,7); if(map.hasOwnProperty(ym)) map[ym]+= +r.amount; });
+  months.forEach(m=>{ if(!map.hasOwnProperty(m)) map[m]=0; });
+  const vals=months.map(m=>map[m]);
+  const max=Math.max(1,...vals);
+  const box=document.getElementById('monthChart');
+  const isExp=curStatType==='expense';
+  const barColor=isExp?'#07C160':'#2BBE67';
+  box.innerHTML=months.map((m,i)=>{
+    const v=map[m];
+    const isCur=m===curMonth;
+    const pct=(v/max*100).toFixed(1);
+    const label=m.split('-')[1]+'月';
+    return `<div class="mcol ${isCur?'mcurrent':''}">
+      <div class="mnum">${v>0?money0(v):''}</div>
+      <div class="mbar"><div class="mf" style="height:${pct}%; background:${barColor};"></div></div>
+      <div class="mlabel">${label}</div>
+    </div>`;
+  }).join('');
+}
+
+// 当月支出构成（分类横向进度条 + 排行榜）
+function renderCompose(){
+  const rs=monthRecords().filter(r=>!r.deleted && r.type===curStatType);
+  const total=rs.reduce((s,r)=>s+ +r.amount,0);
+  const by={}; rs.forEach(r=>by[r.category]=(by[r.category]||0)+ +r.amount);
+  const entries=Object.entries(by).filter(([k,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  document.getElementById('composeTotal').textContent=money0(total);
+  const box=document.getElementById('composeChart');
+  if(!entries.length){box.innerHTML='<div class="empty">暂无数据</div>';return;}
+  box.innerHTML=entries.map(([k,v],i)=>{
+    const pct=total?(v/total*100):0;
+    const c=COLORS[i%COLORS.length];
+    const ico=ICONS[k]||'🛒';
+    return `<div class="compo-row">
+      <div class="compo-ico" style="background:${c}22;">${ico}</div>
+      <div class="compo-info">
+        <div class="cname">${k}</div>
+        <div class="compo-bar"><div class="compo-fill" style="width:${pct.toFixed(1)}%;background:${c};"></div></div>
+        <div class="cmeta">${pct.toFixed(1)}% · ${rs.filter(r=>r.category===k).length} 笔</div>
+      </div>
+      <div class="compo-amt">${money0(v)}</div>
+    </div>`;
+  }).join('');
+}
+
+// 当月支出排行榜 Top10（按单笔金额）
+function renderRankList(){
+  const rs=monthRecords().filter(r=>!r.deleted && r.type===curStatType).slice().sort((a,b)=> +b.amount - +a.amount).slice(0,10);
+  const box=document.getElementById('rankList');
+  if(!rs.length){box.innerHTML='<div class="empty">暂无数据</div>';return;}
+  box.innerHTML=rs.map((r,i)=>{
+    const rank=i+1;
+    const cls=rank===1?'top1':(rank===2?'top2':(rank===3?'top3':''));
+    const title=r.merchant?escapeHtml(r.merchant):r.category;
+    const sub=(r.merchant?r.category:'')+(r.goodsType?' · '+r.goodsType:'')+(r.note?' · '+escapeHtml(r.note):'');
+    return `<div class="rank-row ${cls}">
+      <div class="rank-idx">${rank}</div>
+      <div class="rank-name"><div>${title}</div>${sub?`<div style="font-size:11px;color:var(--hint);margin-top:2px;">${sub}</div>`:''}</div>
+      <div class="rank-amt">${curStatType==='income'?'+':'-'}${money0(r.amount)}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderBars(chartId,totalId,obj,total){
@@ -951,6 +1093,12 @@ document.querySelectorAll('#daySeg button').forEach(b=>b.onclick=()=>{
   curDayType=b.dataset.d;
   document.querySelectorAll('#daySeg button').forEach(x=>x.classList.toggle('on',x===b));
   renderDayChart();
+});
+// 统计：汇总卡片切换 支出/收入
+document.querySelectorAll('#sumSeg button').forEach(b=>b.onclick=()=>{
+  curStatType=b.dataset.s;
+  document.querySelectorAll('#sumSeg button').forEach(x=>x.classList.toggle('on',x===b));
+  renderStat();
 });
 // 筛选：日期
 document.getElementById('dateFilter').onchange=function(){
