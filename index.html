@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>简记 · 记账 v11</title>
+<title>简记 · 记账 v12</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <style>
   :root{
@@ -374,7 +374,7 @@ function normalizeState(s){
   });
   return s;
 }
-function save(){localStorage.setItem(STORE,JSON.stringify(state)); if(window.JianjiSync&&JianjiSync.isConnected&&JianjiSync.isConnected()) JianjiSync.push();}
+function save(){state=normalizeState(state); localStorage.setItem(STORE,JSON.stringify(state)); if(window.JianjiSync&&JianjiSync.isConnected&&JianjiSync.isConnected()) JianjiSync.push();}
 
 // ---------- 云端同步层（Supabase）----------
 window.SUPABASE_CONFIG={
@@ -405,11 +405,12 @@ window.JianjiSync=(function(){
   }
 
   function setStatus(){ if(statusCb) statusCb(connected,code); }
-  function saveLocal(){ try{ localStorage.setItem(STORE,JSON.stringify(state)); }catch(e){} }
+  function saveLocal(){ state=normalizeState(state); try{ localStorage.setItem(STORE,JSON.stringify(state)); }catch(e){} }
 
   // 分类/平台/消费类型取并集（小数据，冲突时并集优先，不丢）
   function mergeSettings(s){
     if(!s) return false; let changed=false;
+    state=normalizeState(state);
     ["expenseCats","incomeCats","platforms","goodsTypes","payMethods"].forEach(k=>{
       (s[k]||[]).forEach(v=>{ if(!state.settings[k].includes(v)){ state.settings[k].push(v); changed=true; } });
     });
@@ -544,7 +545,7 @@ function renderSummary(){
 function renderFilters(){
   const box=document.getElementById('filters');
   const opts=[{k:'all',t:'全部'}];
-  state.settings.expenseCats.slice(0,6).forEach(c=>opts.push({k:c,t:c}));
+  (state.settings.expenseCats||[]).slice(0,6).forEach(c=>opts.push({k:c,t:c}));
   box.innerHTML=opts.map(o=>`<span class="chip ${curFilter===o.k?'on':''}" data-f="${o.k}">${o.t}</span>`).join('');
   box.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{curFilter=c.dataset.f;renderList();renderFilters();});
 }
@@ -636,7 +637,7 @@ function renderMe(){
 }
 function renderPills(boxId,arr,kind){
   const box=document.getElementById(boxId);
-  box.innerHTML=arr.map(v=>`<span class="pill">${v}<span class="del" data-kind="${kind}" data-v="${v}">×</span></span>`).join('');
+  box.innerHTML=(arr||[]).map(v=>`<span class="pill">${v}<span class="del" data-kind="${kind}" data-v="${v}">×</span></span>`).join('');
   box.querySelectorAll('.del').forEach(d=>d.onclick=()=>{
     const k=d.dataset.kind,v=d.dataset.v;
     if(confirm('删除「'+v+'」？已有记录仍保留，仅不再作为新选项。')){
@@ -651,6 +652,7 @@ function renderPills(boxId,arr,kind){
 
 // ---------- 表单 ----------
 function openSheet(){
+  state=normalizeState(state);
   formType='expense';formOnline=false;
   document.querySelectorAll('#typeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.type==='expense'));
   document.getElementById('fAmount').value='';
@@ -667,18 +669,18 @@ function openSheet(){
 }
 function fillCat(){
   const sel=document.getElementById('fCat');
-  const arr=formType==='income'?state.settings.incomeCats:state.settings.expenseCats;
+  const arr=(formType==='income'?state.settings.incomeCats:state.settings.expenseCats)||[];
   sel.innerHTML=arr.map(c=>`<option>${c}</option>`).join('');
 }
 function refreshGoodsPlat(){
   document.getElementById('catLabel').textContent=formType==='income'?'分类':'分类';
   document.getElementById('goodsField').classList.toggle('hidden',formType!=='expense');
   document.getElementById('onlineToggle').classList.toggle('hidden',formType!=='expense');
-  document.getElementById('fGoods').innerHTML=state.settings.goodsTypes.map(c=>`<option>${c}</option>`).join('');
-  document.getElementById('fPlat').innerHTML=state.settings.platforms.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('fGoods').innerHTML=(state.settings.goodsTypes||[]).map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('fPlat').innerHTML=(state.settings.platforms||[]).map(c=>`<option>${c}</option>`).join('');
   const paySel=document.getElementById('fPay');
   if(paySel&&paySel.dataset.init!=='1'){
-    paySel.innerHTML=state.settings.payMethods.map(c=>`<option>${c}</option>`).join('');
+    paySel.innerHTML=(state.settings.payMethods||[]).map(c=>`<option>${c}</option>`).join('');
     paySel.dataset.init='1';
   }
 }
@@ -720,6 +722,7 @@ document.getElementById('fab').onclick=function(e){ try{ openSheet(); }catch(err
 document.getElementById('closeSheet').onclick=()=>document.getElementById('mask').classList.remove('show');
 document.getElementById('mask').onclick=e=>{if(e.target.id==='mask')document.getElementById('mask').classList.remove('show');};
 document.querySelectorAll('#typeSeg button').forEach(b=>b.onclick=()=>{
+  state=normalizeState(state);
   formType=b.dataset.type;
   document.querySelectorAll('#typeSeg button').forEach(x=>x.classList.toggle('on',x===b));
   fillCat();refreshGoodsPlat();
@@ -755,6 +758,7 @@ document.querySelectorAll('.add-inline button').forEach(b=>b.onclick=()=>{
   const [inputId,arrKey]=map[kind];
   const v=document.getElementById(inputId).value.trim();
   if(!v){toast('请输入名称');return;}
+  state=normalizeState(state);
   const arr=state.settings[arrKey];
   if(arr.includes(v)){toast('已存在');return;}
   arr.push(v);document.getElementById(inputId).value='';save();renderMe();toast('已添加');
@@ -809,10 +813,10 @@ function doImport(){
     const ids=new Set(state.records.map(r=>r.id));
     let added=0;
     data.records.forEach(r=>{ if(!ids.has(r.id)){state.records.push(r);added++;} });
-    ['expenseCats','incomeCats','platforms','goodsTypes'].forEach(k=>{
+    ['expenseCats','incomeCats','platforms','goodsTypes','payMethods'].forEach(k=>{
       (data.settings[k]||[]).forEach(v=>{ if(!state.settings[k].includes(v)) state.settings[k].push(v); });
     });
-    save();refreshAll();
+    state=normalizeState(state); save();refreshAll();
     document.getElementById('impMask').classList.remove('show');
     toast('已合并 '+added+' 条记录');
   }catch(e){ toast('同步码无法解析'); }
