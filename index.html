@@ -357,10 +357,17 @@ window.JianjiSync=(function(){
   const CFG=window.SUPABASE_CONFIG||{};
   const URL=(CFG.url||"").trim(), KEY=(CFG.anonKey||"").trim();
   const ENABLED=!!(URL&&KEY&&window.supabase);
+  console.log("[jianji-sync] init: ENABLED=",ENABLED,"URL.len=",URL.length,"KEY.len=",KEY.length,"window.supabase=",typeof window.supabase);
   const CODE_KEY="jianji_ledger_code";
   let client=null, channel=null, code="", connected=false, statusCb=null, pushing=false;
   try{ code=(localStorage.getItem(CODE_KEY)||"").trim(); }catch(e){}
-  if(ENABLED){ try{ client=window.supabase.createClient(URL,KEY,{auth:{persistSession:false}}); }catch(e){ client=null; } }
+  if(ENABLED){
+    try{ client=window.supabase.createClient(URL,KEY,{auth:{persistSession:false}}); console.log("[jianji-sync] client created OK"); }
+    catch(e){ client=null; console.error("[jianji-sync] createClient error:",e); }
+  } else {
+    const reason=!URL?"缺少URL":!KEY?"缺少anonKey":!window.supabase?"supabase-js未加载（最可能是浏览器缓存了旧版或CDN失败）":"未知";
+    console.warn("[jianji-sync] ENABLED=false →",reason);
+  }
 
   function setStatus(){ if(statusCb) statusCb(connected,code); }
 
@@ -398,7 +405,7 @@ window.JianjiSync=(function(){
   }
 
   async function connect(c){
-    if(!client){ toast("云端未就绪（请联网后重试）"); return; }
+    if(!client){ console.error("[jianji-sync] connect: client is null. ENABLED=",ENABLED,"window.supabase=",typeof window.supabase,"URL.len=",URL.length,"KEY.len=",KEY.length); toast("云端未就绪（请看控制台诊断）"); return; }
     code=(c||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,16);
     if(!code){ toast("请输入账本码"); return; }
     try{ localStorage.setItem(CODE_KEY,code); }catch(e){}
