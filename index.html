@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>简记 · 记账 v10</title>
+<title>简记 · 记账 v11</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <style>
   :root{
@@ -346,13 +346,16 @@ const COLORS=['#378ADD','#E24B4A','#1D9E75','#EF9F27','#7F77DD','#D4537E','#0F6E
 const ICONS={salary:'💰',bonus:'🎁',part:'💼',invest:'📈',red:'🧧',other:'📦',
   food:'🍜',traffic:'🚌',home:'🏠',medical:'💊',fun:'🎮',study:'📚',comm:'📞',social:'🤝',fashion:'👗',misc:'🛒'};
 
-let state=load();
+let state=normalizeState(load());
 function load(){
   try{
     const s=JSON.parse(localStorage.getItem(STORE));
     if(s&&s.records) return s;
   }catch(e){}
-  return {
+  return null;
+}
+function normalizeState(s){
+  const defaults={
     records:[],
     settings:{
       expenseCats:['餐饮美食','交通出行','居家生活','医疗健康','休闲娱乐','学习进修','通讯物业','人情社交','服饰美容','其他'],
@@ -362,6 +365,14 @@ function load(){
       payMethods:['信用卡','花呗','银行卡','微信零钱','分付']
     }
   };
+  if(!s||typeof s!=='object') s={};
+  if(!Array.isArray(s.records)) s.records=[];
+  if(!s.settings||typeof s.settings!=='object') s.settings={};
+  const defs=defaults.settings;
+  Object.keys(defs).forEach(k=>{
+    if(!Array.isArray(s.settings[k])) s.settings[k]=defs[k].slice();
+  });
+  return s;
 }
 function save(){localStorage.setItem(STORE,JSON.stringify(state)); if(window.JianjiSync&&JianjiSync.isConnected&&JianjiSync.isConnected()) JianjiSync.push();}
 
