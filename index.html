@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>简记 · 记账 v12</title>
+<title>简记 · 记账 v13</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <style>
   :root{
@@ -57,6 +57,11 @@
   .item .mid .t2{font-size:11px; color:var(--sub); margin-top:2px;}
   .item .amt{font-size:15px; font-weight:600; white-space:nowrap;}
   .amt.exp{color:var(--red);} .amt.inc{color:var(--green);}
+  .item .ops{display:flex; flex-direction:column; gap:6px; flex-shrink:0; align-items:flex-end;}
+  .item .ops button{font-size:11px; padding:4px 9px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--sub); cursor:pointer; white-space:nowrap;}
+  .item .ops .del{color:var(--red); border-color:#F3C9C8; background:#FCEDED;}
+  .item{cursor:pointer;}
   .tag{display:inline-block; font-size:10px; padding:1px 6px; border-radius:6px; background:var(--bg);
     color:var(--sub); margin-right:4px; border:1px solid var(--line);}
   .tag.plat{color:var(--amber); border-color:#F3DCA8; background:#FCF4E6;}
@@ -257,7 +262,7 @@
 <!-- 记一笔 sheet -->
 <div class="mask" id="mask">
   <div class="sheet">
-    <h3>记一笔 <span class="x" id="closeSheet">×</span></h3>
+    <h3 id="sheetTitle">记一笔 <span class="x" id="closeSheet">×</span></h3>
     <div class="seg" id="typeSeg">
       <button class="on exp" data-type="expense">支出</button>
       <button data-type="income">收入</button>
@@ -524,6 +529,7 @@ let curMonth=fmtMonth(new Date());
 let curFilter='all';
 let formType='expense';
 let formOnline=false;
+let editingId=null;
 
 function fmtMonth(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function money(n){return '¥'+(+n).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -575,13 +581,26 @@ function renderList(){
         <div class="t2">${tags.join('')}</div>
       </div>
       <div class="amt ${r.type==='income'?'inc':'exp'}">${sign}${money0(r.amount)}</div>
+      <div class="ops">
+        <button class="edit" data-id="${r.id}">编辑</button>
+        <button class="del" data-id="${r.id}">删除</button>
+      </div>
     </div>`;
   });
   box.innerHTML=html;
   box.querySelectorAll('.item').forEach(it=>it.onclick=()=>{
-    const id=it.dataset.id;
-    if(confirm('删除这条记录？')){
-      const r=state.records.find(x=>x.id===id);
+    const r=state.records.find(x=>x.id===it.dataset.id);
+    if(r) openSheet(r); // 点整条记录进入编辑
+  });
+  box.querySelectorAll('.ops .edit').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const r=state.records.find(x=>x.id===b.dataset.id);
+    if(r) openSheet(r);
+  });
+  box.querySelectorAll('.ops .del').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    if(confirm('确定删除这条记录？')){
+      const r=state.records.find(x=>x.id===b.dataset.id);
       if(r){ r.deleted=true; r.version=(r.version||1)+1; save(); refreshAll(); toast('已删除'); } // 软删除：标记 deleted，云端同步后另一端也隐藏
     }
   });
@@ -651,20 +670,28 @@ function renderPills(boxId,arr,kind){
 }
 
 // ---------- 表单 ----------
-function openSheet(){
+function openSheet(rec){
   state=normalizeState(state);
-  formType='expense';formOnline=false;
-  document.querySelectorAll('#typeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.type==='expense'));
-  document.getElementById('fAmount').value='';
-  document.getElementById('fDate').value=new Date().toISOString().slice(0,10);
-  document.getElementById('fNote').value='';
-  document.getElementById('fOnline').classList.remove('on');
-  document.getElementById('platField').classList.add('hidden');
+  editingId=rec?rec.id:null;
+  document.getElementById('sheetTitle').firstChild.textContent=(rec?'编辑记录 ':'记一笔 ');
+  formType=rec?rec.type:'expense';
+  formOnline=rec?!rec.isOnline:false;
+  document.querySelectorAll('#typeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.type===formType));
+  document.getElementById('fAmount').value=rec?(+rec.amount):'';
+  document.getElementById('fDate').value=rec?rec.date:new Date().toISOString().slice(0,10);
+  document.getElementById('fNote').value=rec?(rec.note||''):'';
+  document.getElementById('fOnline').classList.toggle('on',formOnline);
+  document.getElementById('platField').classList.toggle('hidden',!formOnline);
   fillCat();
   refreshGoodsPlat();
-  const paySel=document.getElementById('fPay'); if(paySel){paySel.value=paySel.options[0]?paySel.options[0].value:'';}
-  document.getElementById('fBank').value='';
-  document.getElementById('bankField').classList.add('hidden');
+  const catSel=document.getElementById('fCat'); if(catSel&&rec){ catSel.value=rec.category; if(catSel.selectedIndex<0)catSel.selectedIndex=0; }
+  const goodsSel=document.getElementById('fGoods'); if(goodsSel&&rec&&rec.goodsType){ goodsSel.value=rec.goodsType; if(goodsSel.selectedIndex<0)goodsSel.selectedIndex=0; }
+  const platSel=document.getElementById('fPlat'); if(platSel&&rec&&rec.platform){ platSel.value=rec.platform; if(platSel.selectedIndex<0)platSel.selectedIndex=0; }
+  const paySel=document.getElementById('fPay');
+  if(paySel){ paySel.value=rec&&rec.payMethod?rec.payMethod:paySel.options[0]?paySel.options[0].value:''; }
+  document.getElementById('fBank').value=rec?(rec.payDetail||''):'';
+  const isBank=(rec&&rec.payMethod)==='银行卡';
+  document.getElementById('bankField').classList.toggle('hidden',!isBank);
   document.getElementById('mask').classList.add('show');
 }
 function fillCat(){
@@ -687,12 +714,9 @@ function refreshGoodsPlat(){
 function saveRecord(){
   const amount=parseFloat(document.getElementById('fAmount').value);
   if(!amount||amount<=0){toast('请输入金额');return;}
-  const rec={
-    id:uid(),
+  const data={
     type:formType,
     amount:amount.toFixed(2),
-    version:1,
-    deleted:false,
     category:document.getElementById('fCat').value,
     goodsType:formType==='expense'?document.getElementById('fGoods').value:'',
     isOnline:formType==='expense'&&formOnline,
@@ -700,14 +724,23 @@ function saveRecord(){
     payMethod:document.getElementById('fPay').value||'',
     payDetail:document.getElementById('fPay').value==='银行卡'?document.getElementById('fBank').value.trim():'',
     note:document.getElementById('fNote').value.trim(),
-    date:document.getElementById('fDate').value,
-    createdAt:Date.now()
+    date:document.getElementById('fDate').value
   };
-  state.records.push(rec);save();
-  document.getElementById('mask').classList.remove('show');
-  // 若记录月份≠当前查看月份，跳到该月
-  curMonth=rec.date.slice(0,7);
-  refreshAll();toast('已保存');
+  if(editingId){
+    const r=state.records.find(x=>x.id===editingId);
+    if(r){ Object.assign(r,data,{version:(r.version||1)+1}); }
+    editingId=null;
+    document.getElementById('mask').classList.remove('show');
+    curMonth=data.date.slice(0,7);
+    save();refreshAll();toast('已更新');
+  }else{
+    const rec=Object.assign({id:uid(),version:1,deleted:false,createdAt:Date.now()},data);
+    state.records.push(rec);save();
+    document.getElementById('mask').classList.remove('show');
+    // 若记录月份≠当前查看月份，跳到该月
+    curMonth=rec.date.slice(0,7);
+    refreshAll();toast('已保存');
+  }
 }
 
 // ---------- 工具 ----------
