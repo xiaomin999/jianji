@@ -403,12 +403,18 @@ window.JianjiSync=(function(){
     try{
       const {data,error}=await client.from("jianji_state").select("data").eq("ledger_code",code).maybeSingle();
       if(error){ console.warn("[jianji-sync] pull error",error); return; }
-      if(data&&data.data) mergeData(data.data);
+      if(data&&data.data){
+        const n=(data.data.records||[]).length;
+        console.log("[jianji-sync] pull OK, 云端 records数=",n);
+        mergeData(data.data);
+      } else {
+        console.log("[jianji-sync] pull OK, 云端无数据（首次连接或账本码未建过）");
+      }
     }catch(e){ console.warn("[jianji-sync] pull fail",e); }
   }
 
   async function connect(c){
-    if(!client){ console.error("[jianji-sync] connect: client is null. ENABLED=",ENABLED,"window.supabase=",typeof window.supabase,"URL.len=",URL.length,"KEY.len=",KEY.length); toast("云端未就绪（请看控制台诊断）"); return; }
+    if(!client){ console.error("[jianji-sync] connect: client is null."); toast("云端未就绪（请看控制台诊断）"); return; }
     code=(c||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,16);
     if(!code){ toast("请输入账本码"); return; }
     try{ localStorage.setItem(CODE_KEY,code); }catch(e){}
@@ -416,10 +422,14 @@ window.JianjiSync=(function(){
     await pull();
     if(channel){ try{ await client.removeChannel(channel); }catch(e){} channel=null; }
     channel=client.channel("jianji-"+code)
-      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"jianji_state",filter:`ledger_code=eq.${code}`},payload=>{
+      .on("postgres_changes",{event:"*",schema:"public",table:"jianji_state",filter:`ledger_code=eq.${code}`},payload=>{
+        console.log("[jianji-sync] realtime 收到:",payload.eventType,"ledger=",payload.new&&payload.new.ledger_code);
         if(payload.new&&payload.new.data) mergeData(payload.new.data);
       })
-      .subscribe(st=>{ connected=(st==="SUBSCRIBED"); setStatus(); });
+      .subscribe(st=>{
+        console.log("[jianji-sync] subscribe status:",st);
+        connected=(st==="SUBSCRIBED"); setStatus();
+      });
     await push();
     toast("已连接云端："+code);
   }
